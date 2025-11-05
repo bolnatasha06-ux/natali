@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Минимальное CLI-приложение для анализа пакетов с конфигурацией из XML-файла
+Минимальное CLI-приложение для анализа пакетов с конфигурацией в XML
 """
 
-import xml.etree.ElementTree as ET
 import sys
 import os
+import xml.etree.ElementTree as ET
 from typing import Dict, Any, Optional
 from enum import Enum
 
@@ -27,8 +27,8 @@ class PackageAnalyzerConfig:
     def __init__(self, config_file: str = "config.xml"):
         self.config_file = config_file
         self.default_config = {
-            'package_name': '',
-            'repository_url': '',
+            'package_name': 'example-package',
+            'repository_url': './test-repo',
             'repository_mode': RepositoryMode.LOCAL.value,
             'package_version': '1.0.0',
             'filter_substring': ''
@@ -38,150 +38,157 @@ class PackageAnalyzerConfig:
     def load_config(self) -> Dict[str, Any]:
         """
         Загрузка конфигурации из XML-файла
-        
-        Returns:
-            Dict[str, Any]: Словарь с настройками
-            
-        Raises:
-            ConfigError: При ошибках загрузки или валидации конфигурации
         """
         try:
-            # Проверка существования файла
             if not os.path.exists(self.config_file):
                 raise ConfigError(f"Конфигурационный файл '{self.config_file}' не найден")
             
-            # Парсинг XML
             tree = ET.parse(self.config_file)
             root = tree.getroot()
             
-            # Извлечение параметров
-            extracted_config = {}
+            config_data = {}
             
             # Имя пакета
             package_name_elem = root.find('package_name')
-            if package_name_elem is not None and package_name_elem.text:
-                extracted_config['package_name'] = package_name_elem.text.strip()
-            else:
-                raise ConfigError("Параметр 'package_name' отсутствует или пуст")
+            if package_name_elem is not None:
+                config_data['package_name'] = package_name_elem.text.strip()
             
-            # URL репозитория или путь
-            repo_elem = root.find('repository_url')
-            if repo_elem is not None and repo_elem.text:
-                extracted_config['repository_url'] = repo_elem.text.strip()
-            else:
-                raise ConfigError("Параметр 'repository_url' отсутствует или пуст")
+            # URL репозитория или путь к файлу
+            repository_url_elem = root.find('repository_url')
+            if repository_url_elem is not None:
+                config_data['repository_url'] = repository_url_elem.text.strip()
             
-            # Режим репозитория
-            mode_elem = root.find('repository_mode')
-            if mode_elem is not None and mode_elem.text:
-                mode_value = mode_elem.text.strip().lower()
+            # Режим работы с репозиторием
+            repository_mode_elem = root.find('repository_mode')
+            if repository_mode_elem is not None:
+                mode_value = repository_mode_elem.text.strip().lower()
                 if mode_value not in [mode.value for mode in RepositoryMode]:
-                    raise ConfigError(f"Недопустимый режим репозитория: {mode_value}")
-                extracted_config['repository_mode'] = mode_value
-            else:
-                extracted_config['repository_mode'] = self.default_config['repository_mode']
+                    raise ConfigError(f"Недопустимый режим репозитория: {mode_value}. "
+                                    f"Допустимые значения: {[mode.value for mode in RepositoryMode]}")
+                config_data['repository_mode'] = mode_value
             
             # Версия пакета
-            version_elem = root.find('package_version')
-            if version_elem is not None and version_elem.text:
-                extracted_config['package_version'] = version_elem.text.strip()
-            else:
-                extracted_config['package_version'] = self.default_config['package_version']
+            package_version_elem = root.find('package_version')
+            if package_version_elem is not None:
+                config_data['package_version'] = package_version_elem.text.strip()
             
             # Подстрока для фильтрации
-            filter_elem = root.find('filter_substring')
-            if filter_elem is not None and filter_elem.text is not None:
-                extracted_config['filter_substring'] = filter_elem.text.strip()
-            else:
-                extracted_config['filter_substring'] = self.default_config['filter_substring']
+            filter_substring_elem = root.find('filter_substring')
+            if filter_substring_elem is not None:
+                config_data['filter_substring'] = filter_substring_elem.text.strip() if filter_substring_elem.text else ''
             
-            self.config.update(extracted_config)
+            # Обновляем конфигурацию
+            self.config.update(config_data)
+            
+            # Валидация параметров
+            self._validate_config()
+            
             return self.config
             
         except ET.ParseError as e:
-            raise ConfigError(f"Ошибка парсинга XML: {e}")
+            raise ConfigError(f"Ошибка парсинга XML файла: {e}")
         except Exception as e:
             raise ConfigError(f"Ошибка загрузки конфигурации: {e}")
     
-    def validate_config(self) -> None:
-        """Валидация загруженной конфигурации"""
-        if not self.config['package_name']:
-            raise ConfigError("Имя пакета не может быть пустым")
+    def _validate_config(self) -> None:
+        """Валидация параметров конфигурации"""
+        # Проверка имени пакета
+        if not self.config['package_name'] or not isinstance(self.config['package_name'], str):
+            raise ConfigError("Имя пакета должно быть непустой строкой")
         
-        if not self.config['repository_url']:
-            raise ConfigError("URL или путь к репозиторию не может быть пустым")
+        # Проверка URL/пути репозитория
+        if not self.config['repository_url'] or not isinstance(self.config['repository_url'], str):
+            raise ConfigError("URL/путь репозитория должен быть непустой строкой")
         
-        # Проверка существования локального пути для локального режима
-        if (self.config['repository_mode'] == RepositoryMode.LOCAL.value and 
-            not os.path.exists(self.config['repository_url'])):
-            raise ConfigError(f"Локальный путь не существует: {self.config['repository_url']}")
+        # Проверка версии пакета
+        if not self.config['package_version'] or not isinstance(self.config['package_version'], str):
+            raise ConfigError("Версия пакета должна быть непустой строкой")
         
-        # Базовая валидация версии
-        version = self.config['package_version']
-        if not all(c.isdigit() or c == '.' for c in version.replace(' ', '')):
-            raise ConfigError(f"Некорректный формат версии: {version}")
+        # Проверка подстроки фильтрации
+        if not isinstance(self.config['filter_substring'], str):
+            raise ConfigError("Подстрока фильтрации должна быть строкой")
     
-    def display_config(self) -> None:
-        """Вывод конфигурации в формате ключ-значение"""
-        print("=" * 50)
-        print("Конфигурация приложения:")
-        print("=" * 50)
-        for key, value in self.config.items():
-            print(f"{key:20}: {value}")
-        print("=" * 50)
-
-
-def create_sample_config() -> None:
-    """Создание примерного конфигурационного файла"""
-    sample_config = """<?xml version="1.0" encoding="UTF-8"?>
-<config>
+    def create_sample_config(self) -> None:
+        """
+        Создание примерного конфигурационного файла
+        """
+        sample_config = '''<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Имя анализируемого пакета -->
     <package_name>example-package</package_name>
-    <repository_url>https://github.com/example/repo.git</repository_url>
-    <repository_mode>remote</repository_mode>
-    <package_version>1.2.3</package_version>
-    <filter_substring>test</filter_substring>
-</config>
-"""
     
-    with open("config.xml", "w", encoding="utf-8") as f:
-        f.write(sample_config)
-    print("Создан пример конфигурационного файла 'config.xml'")
+    <!-- URL-адрес репозитория или путь к файлу тестового репозитория -->
+    <repository_url>./test-repo</repository_url>
+    
+    <!-- Режим работы с тестовым репозиторием (local/remote) -->
+    <repository_mode>local</repository_mode>
+    
+    <!-- Версия пакета -->
+    <package_version>1.0.0</package_version>
+    
+    <!-- Подстрока для фильтрации пакетов -->
+    <filter_substring>test</filter_substring>
+</configuration>
+'''
+        try:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                f.write(sample_config)
+            print(f"Создан пример конфигурационного файла: {self.config_file}")
+        except Exception as e:
+            raise ConfigError(f"Ошибка создания примерного конфигурационного файла: {e}")
+
+
+def print_config(config: Dict[str, Any]) -> None:
+    """
+    Вывод конфигурации в формате ключ-значение
+    """
+    print("=" * 50)
+    print("КОНФИГУРАЦИЯ ПРИЛОЖЕНИЯ")
+    print("=" * 50)
+    
+    for key, value in config.items():
+        print(f"{key:20} : {value}")
+    
+    print("=" * 50)
 
 
 def main():
-    """Основная функция приложения"""
-    
-    # Проверяем аргументы командной строки
+    """
+    Основная функция приложения
+    """
     config_file = "config.xml"
-    if len(sys.argv) > 1:
-        config_file = sys.argv[1]
-    
-    # Если файл конфигурации не существует, создаем пример
-    if not os.path.exists(config_file):
-        print(f"Конфигурационный файл '{config_file}' не найден.")
-        create_sample_config()
-        print("Запустите приложение снова для использования примерной конфигурации.")
-        return 1
+    config_manager = PackageAnalyzerConfig(config_file)
     
     try:
-        # Загрузка и валидация конфигурации
-        config_manager = PackageAnalyzerConfig(config_file)
+        # Проверяем существование конфигурационного файла
+        if not os.path.exists(config_file):
+            print(f"Конфигурационный файл '{config_file}' не найден.")
+            create_sample = input("Создать пример конфигурационного файла? (y/n): ").strip().lower()
+            if create_sample == 'y':
+                config_manager.create_sample_config()
+                print("Отредактируйте config.xml и запустите приложение снова.")
+                return
+            else:
+                print("Завершение работы.")
+                return
+        
+        # Загружаем конфигурацию
         config = config_manager.load_config()
-        config_manager.validate_config()
         
-        # Вывод конфигурации (требование этапа 1)
-        config_manager.display_config()
-        
-        print("\nКонфигурация успешно загружена! Приложение готово к работе.")
-        return 0
+        print_config(config)
+
+        print("\nПриложение запущено!")
         
     except ConfigError as e:
-        print(f"Ошибка конфигурации: {e}", file=sys.stderr)
-        return 1
+        print(f"ОШИБКА КОНФИГУРАЦИИ: {e}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nРабота приложения прервана пользователем.")
+        sys.exit(0)
     except Exception as e:
-        print(f"Неожиданная ошибка: {e}", file=sys.stderr)
-        return 2
+        print(f"ОШИБКА: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    exit(main())
+    main()
